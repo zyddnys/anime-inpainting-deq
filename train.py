@@ -99,31 +99,32 @@ def train(
 				scaler.step(opt_dis)
 				scaler.update()
 			# train generator
-			opt_gen.zero_grad()
-			for _ in range(gradient_accumulate) :
-				real_img, mask = next(dataloader)
-				real_img, mask = real_img.cuda(), mask.cuda()
-				real_img_masked = mask_image(real_img, mask)
-				with amp.autocast(enabled = enable_fp16) :
-					inpainted_result = network_gen(real_img_masked)
-					loss_gen_l1 = F.l1_loss(inpainted_result, real_img)
-					loss_gen_fm = 0 # TODO: use VGG19/Darknet53 as perceptual loss
-					generator_logits = network_dis(inpainted_result)
-					loss_gen_gan = loss_gan(generator_logits, 'generator')
-					loss_gen = weight_l1 * loss_gen_l1 + weight_fm * loss_gen_fm + weight_gan * loss_gen_gan
-				if torch.isnan(loss_gen) :
-					breakpoint()
+			for gen in range(n_gen) :
+				opt_gen.zero_grad()
+				for _ in range(gradient_accumulate) :
+					real_img, mask = next(dataloader)
+					real_img, mask = real_img.cuda(), mask.cuda()
+					real_img_masked = mask_image(real_img, mask)
+					with amp.autocast(enabled = enable_fp16) :
+						inpainted_result = network_gen(real_img_masked)
+						loss_gen_l1 = F.l1_loss(inpainted_result, real_img)
+						loss_gen_fm = 0 # TODO: use VGG19/Darknet53 as perceptual loss
+						generator_logits = network_dis(inpainted_result)
+						loss_gen_gan = loss_gan(generator_logits, 'generator')
+						loss_gen = weight_l1 * loss_gen_l1 + weight_fm * loss_gen_fm + weight_gan * loss_gen_gan
+					if torch.isnan(loss_gen) :
+						breakpoint()
 
-				scaler.scale(loss_gen / float(gradient_accumulate)).backward()
+					scaler.scale(loss_gen / float(gradient_accumulate)).backward()
 
-				loss_gen_meter(loss_gen.item())
-				loss_gen_l1_meter(loss_gen_l1.item())
-				sch_meter(loss_gen_l1.item()) # use L1 loss as lr scheduler metric
-				loss_gen_fm_meter(loss_gen_fm.item())
-				loss_gen_gan_meter(loss_gen_gan.item())
-			scaler.unscale_(opt_gen)
-			scaler.step(opt_gen)
-			scaler.update()
+					loss_gen_meter(loss_gen.item())
+					loss_gen_l1_meter(loss_gen_l1.item())
+					sch_meter(loss_gen_l1.item()) # use L1 loss as lr scheduler metric
+					loss_gen_fm_meter(loss_gen_fm.item())
+					loss_gen_gan_meter(loss_gen_gan.item())
+				scaler.unscale_(opt_gen)
+				scaler.step(opt_gen)
+				scaler.update()
 			if counter > 0 and counter % record_freq == 0 :
 				writer.add_scalar('discriminator/all', loss_dis_meter(reset = True), counter)
 				writer.add_scalar('discriminator/real', loss_dis_real_meter(reset = True), counter)
