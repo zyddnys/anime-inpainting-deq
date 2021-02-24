@@ -72,7 +72,7 @@ def train(
 				opt_dis.zero_grad()
 				for _ in range(gradient_accumulate) :
 					real_img, mask = next(dataloader)
-					real_img, mask = real_img.cuda(), mask.cuda()
+					real_img, mask = real_img.to(device), mask.to(device)
 					real_img_masked = mask_image(real_img, mask)
 					if np.random.randint(0, 2) == 0 :
 						with torch.no_grad(), amp.autocast(enabled = enable_fp16) :
@@ -103,7 +103,7 @@ def train(
 				opt_gen.zero_grad()
 				for _ in range(gradient_accumulate) :
 					real_img, mask = next(dataloader)
-					real_img, mask = real_img.cuda(), mask.cuda()
+					real_img, mask = real_img.to(device), mask.to(device)
 					real_img_masked = mask_image(real_img, mask)
 					with amp.autocast(enabled = enable_fp16) :
 						inpainted_result = network_gen(real_img_masked)
