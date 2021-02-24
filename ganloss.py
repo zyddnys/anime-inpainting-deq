@@ -106,7 +106,7 @@ class GANLossQP( _GANLoss ) :
 	def __init__( self, device ) :
 		super( GANLossQP, self ).__init__( device )
 
-	def run( self, logits, labels, dom = 1 ) :      
+	def run( self, logits, labels, dom = 1 ) :
 		if labels == 'real' :
 			loss = -logits
 		if labels == 'fake' :

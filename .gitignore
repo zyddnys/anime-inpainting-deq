@@ -1,3 +1,6 @@
 *.ckpt
+*.flist
+*.pyx
 .vscode
 __pycache__
+checkpoints

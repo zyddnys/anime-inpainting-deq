@@ -1,5 +1,6 @@
 
 import os
+from typing import Iterable
 
 import torch
 import torch.nn as nn
@@ -10,9 +11,15 @@ import numpy as np
 
 from torch.cuda import amp
 from torch.utils.tensorboard import SummaryWriter
+from torchvision.models.vgg import vgg16
 
 import ganloss
 import utils
+import dataset
+import models
+import vgg_loss
+
+from tqdm import tqdm
 
 def mask_image(img, mask) :
 	return img * mask
@@ -29,21 +36,24 @@ def train(
 	weight_l1 = 1.0,
 	weight_fm = 1.0,
 	device = torch.device('cuda:0'),
-	n_critic = 3,
+	n_critic = 1,
 	n_gen = 1,
-	fake_pool_size = 0,
+	fake_pool_size = 256,
 	lr_gen = 1e-4,
 	lr_dis = 5e-4,
 	updates_per_epoch = 10000,
 	record_freq = 1000,
 	total_updates = 1000000,
-	gradient_accumulate = 8,
-	enable_fp16 = True
+	gradient_accumulate = 4,
+	enable_fp16 = True,
+	resume = False
 	) :
+	print(' -- Initializing losses')
 	loss_gan = ganloss.GANLossSCE(device)
+	loss_vgg = vgg_loss.VGG16Loss().to(device)
 
 	opt_gen = optim.AdamW(network_gen.parameters(), lr = lr_gen, betas = (0.5, 0.99))
-	opt_dis = optim.AdamW(network_gen.parameters(), lr = lr_dis, betas = (0.5, 0.99))
+	opt_dis = optim.AdamW(network_dis.parameters(), lr = lr_dis, betas = (0.5, 0.99))
 
 	sch_gen = optim.lr_scheduler.ReduceLROnPlateau(opt_gen, 'min', factor = 0.5, patience = 4, verbose = True, min_lr = 1e-6)
 	sch_dis = optim.lr_scheduler.ReduceLROnPlateau(opt_dis, 'min', factor = 0.5, patience = 4, verbose = True, min_lr = 1e-6)
@@ -63,10 +73,19 @@ def train(
 	writer = SummaryWriter(os.path.join(checkpoint_path, 'tb_summary'))
 	os.makedirs(os.path.join(checkpoint_path, 'checkpoints'), exist_ok = True)
 
-	# TODO: restore from checkpoint if present
+	fakepool = utils.ImagePool(fake_pool_size)
 
+	if resume :
+		print(' -- Loading checkpoint')
+		chekcpoints = os.listdir(os.path.join(checkpoint_path, 'checkpoints'))
+		last_chekcpoints = sorted(chekcpoints) if 'latest.ckpt' not in chekcpoints else 'latest.ckpt'
+		print(last_chekcpoints)
+
+	dataloader = iter(dataloader)
+
+	print(' -- Training start')
 	try :
-		for counter in range(total_updates) :
+		for counter in tqdm(range(total_updates)) :
 			# train discrimiantor
 			for critic in range(n_critic) :
 				opt_dis.zero_grad()
@@ -74,20 +93,19 @@ def train(
 					real_img, mask = next(dataloader)
 					real_img, mask = real_img.to(device), mask.to(device)
 					real_img_masked = mask_image(real_img, mask)
-					if np.random.randint(0, 2) == 0 :
+					if np.random.randint(0, 2) == 0 or not fakepool.available() :
 						with torch.no_grad(), amp.autocast(enabled = enable_fp16) :
 							fake_img = network_gen(real_img_masked, mask)
-						# TODO: add to fake pool
+						fakepool.put(fake_img)
 					else :
-						# TODO: fake pool
-						fake_img = sample_fake_pool()
+						fake_img = fakepool.sample(real_img.device)
 					with amp.autocast(enabled = enable_fp16) :
 						real_logits = network_dis(real_img)
 						fake_logits = network_dis(fake_img)
 						loss_dis_real = loss_gan(real_logits, 'real')
 						loss_dis_fake = loss_gan(fake_logits, 'fake')
 						loss_dis = 0.5 * (loss_dis_real + loss_dis_fake)
-					if torch.isnan(loss_dis) :
+					if torch.isnan(loss_dis) or torch.isinf(loss_dis) :
 						breakpoint()
 
 					scaler.scale(loss_dis / float(gradient_accumulate)).backward()
@@ -106,13 +124,16 @@ def train(
 					real_img, mask = real_img.to(device), mask.to(device)
 					real_img_masked = mask_image(real_img, mask)
 					with amp.autocast(enabled = enable_fp16) :
-						inpainted_result = network_gen(real_img_masked)
+						inpainted_result = network_gen(real_img_masked, mask)
+						with torch.no_grad() :
+							real_image_feats = loss_vgg(real_img)
+						fake_image_feats = loss_vgg(inpainted_result)
 						loss_gen_l1 = F.l1_loss(inpainted_result, real_img)
-						loss_gen_fm = 0 # TODO: use VGG19/Darknet53 as perceptual loss
+						loss_gen_fm = F.l1_loss(fake_image_feats, real_image_feats)
 						generator_logits = network_dis(inpainted_result)
 						loss_gen_gan = loss_gan(generator_logits, 'generator')
 						loss_gen = weight_l1 * loss_gen_l1 + weight_fm * loss_gen_fm + weight_gan * loss_gen_gan
-					if torch.isnan(loss_gen) :
+					if torch.isnan(loss_gen) or torch.isinf(loss_dis) :
 						breakpoint()
 
 					scaler.scale(loss_gen / float(gradient_accumulate)).backward()
@@ -126,6 +147,7 @@ def train(
 				scaler.step(opt_gen)
 				scaler.update()
 			if counter > 0 and counter % record_freq == 0 :
+				tqdm.write(f' -- Record at update {counter}')
 				writer.add_scalar('discriminator/all', loss_dis_meter(reset = True), counter)
 				writer.add_scalar('discriminator/real', loss_dis_real_meter(reset = True), counter)
 				writer.add_scalar('discriminator/fake', loss_dis_fake_meter(reset = True), counter)
@@ -147,6 +169,7 @@ def train(
 					os.path.join(checkpoint_path, 'checkpoints', f'update_{counter}.ckpt')
 				)
 			if counter > 0 and counter % updates_per_epoch == 0 :
+				tqdm.write(f' -- Epoch finished at update {counter}')
 				# epoch finished
 				loss_epoch = sch_meter(reset = True)
 				sch_gen.step(loss_epoch)
@@ -162,3 +185,26 @@ def train(
 			},
 			os.path.join(checkpoint_path, 'checkpoints', f'latest.ckpt')
 		)
+
+def main(args, device) :
+	print(' -- Initializing models')
+	gen = models.InpaintingSingleStage().to(device)
+	dis = models.Discriminator().to(device)
+	ds = dataset.FileListDataset('train.flist', patch_size = 512)
+	loader = torch.utils.data.DataLoader(
+		ds,
+		batch_size = args.batch_size,
+		num_workers = args.workers,
+		worker_init_fn = dataset.init_worker,
+		pin_memory = True
+	)
+	train(gen, dis, loader, args.checkpoint_dir)
+
+if __name__ == '__main__' :
+	import argparse
+	parser = argparse.ArgumentParser()
+	parser.add_argument('--checkpoint-dir', '-d', type = str, default = './checkpoints', help = "where to place checkpoints")
+	parser.add_argument('--batch-size', type = int, default = 8, help = "training batch size")
+	parser.add_argument('--workers', type = int, default = 24, help = "num of dataloader workers")
+	args = parser.parse_args()
+	main(args, torch.device("cuda:0"))
