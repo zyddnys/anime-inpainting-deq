@@ -186,7 +186,8 @@ class InpaintingSingleStage(nn.Module) :
 			GatedWSConvPadded(ch, out_ch, 3, stride = 1),
 		)
 
-	def forward(self, x) :
+	def forward(self, img, mask) :
+		x = torch.cat([mask, img], dim = 1)
 		x = self.head(x)
 		x = self.body(x)
 		x = self.tail(x)
