@@ -191,7 +191,7 @@ class InpaintingSingleStage(nn.Module) :
 		x = self.head(x)
 		x = self.body(x)
 		x = self.tail(x)
-		return x
+		return torch.tanh(x)
 
 class Discriminator(nn.Module) :
 	def __init__(self, in_ch = 3, in_planes = 64, blocks = [2, 2, 2], alpha = 0.2) :
@@ -227,6 +227,28 @@ class Discriminator(nn.Module) :
 		for l in self.layers :
 			x = l(x)
 		x = self.cls(relu_nf(x))
+		return x
+
+class DiscriminatorSimple(nn.Module) :
+	def __init__(self, in_ch = 3, in_planes = 64, blocks = [2, 2, 2], alpha = 0.2) :
+		super(DiscriminatorSimple, self).__init__()
+		
+		self.conv1_1 = nn.utils.spectral_norm(nn.Conv2d(in_ch, in_planes, 4, 2, 1))
+		self.conv1_2 = nn.utils.spectral_norm(nn.Conv2d(in_planes, in_planes, 3, 1, 1))
+		self.conv2_1 = nn.utils.spectral_norm(nn.Conv2d(in_planes, in_planes * 2, 4, 2, 1))
+		self.conv2_2 = nn.utils.spectral_norm(nn.Conv2d(in_planes * 2, in_planes * 2, 3, 1, 1))
+		self.conv3_1 = nn.utils.spectral_norm(nn.Conv2d(in_planes * 2, in_planes * 4, 4, 2, 1))
+		self.conv3_2 = nn.utils.spectral_norm(nn.Conv2d(in_planes * 4, in_planes * 4, 3, 1, 1))
+		self.cls = nn.utils.spectral_norm(nn.Conv2d(in_planes * 4, 1, 3, 1, 1))
+
+	def forward(self, x) :
+		x = F.leaky_relu(self.conv1_1(x), 0.1)
+		x = F.leaky_relu(self.conv1_2(x), 0.1)
+		x = F.leaky_relu(self.conv2_1(x), 0.1)
+		x = F.leaky_relu(self.conv2_2(x), 0.1)
+		x = F.leaky_relu(self.conv3_1(x), 0.1)
+		x = F.leaky_relu(self.conv3_2(x), 0.1)
+		x = self.cls(x)
 		return x
 
 def test() :

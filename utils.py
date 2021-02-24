@@ -22,11 +22,12 @@ class AvgMeter(object) :
 		return result
 
 class ImagePool(object) :
-	def __init__(self, size) :
+	def __init__(self, size, device) :
 		self.size = size
 		self.bs = 0
 		self.count = 0
 		self.buffer = None
+		self.device = device
 
 	def put(self, images: torch.Tensor) :
 		if self.size == 0 :
@@ -37,25 +38,23 @@ class ImagePool(object) :
 		else :
 			assert self.bs == images.size(0)
 		if self.buffer is None :
-			self.buffer = torch.zeros(self.size, *images.shape[1:], dtype = images.dtype)
-		remain_cap = self.size - self.bs
+			self.buffer = torch.zeros(self.size, *images.shape[1:], dtype = images.dtype, device = self.device)
+		remain_cap = self.size - self.count
 		if remain_cap >= self.bs :
 			# append back
-			self.buffer[self.count: self.count + self.bs] = images.detach().cpu()
+			self.buffer[self.count: self.count + self.bs] = images.detach()
 		else :
 			self.buffer[remain_cap: remain_cap + self.count] = self.buffer[0: self.count]
-			self.buffer[: self.bs] = images.detach().cpu()
+			self.buffer[: self.bs] = images.detach()
 		self.count = min(self.count + self.bs, self.size)
 
 	def available(self) :
 		return self.count > 0
 
-	def sample(self, to_device = None) :
+	def sample(self) :
 		assert self.count > 0
 		indices = list(range(self.count))
 		np.random.shuffle(indices)
 		indices = indices[: self.bs]
 		images = self.buffer[indices].contiguous()
-		if to_device is not None :
-			images = images.to(to_device)
 		return images

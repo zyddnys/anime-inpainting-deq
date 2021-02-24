@@ -49,7 +49,7 @@ def train(
 	resume = False
 	) :
 	print(' -- Initializing losses')
-	loss_gan = ganloss.GANLossSCE(device)
+	loss_gan = ganloss.GANLossHinge(device)
 	loss_vgg = vgg_loss.VGG16Loss().to(device)
 
 	opt_gen = optim.AdamW(network_gen.parameters(), lr = lr_gen, betas = (0.5, 0.99))
@@ -59,7 +59,8 @@ def train(
 	sch_dis = optim.lr_scheduler.ReduceLROnPlateau(opt_dis, 'min', factor = 0.5, patience = 4, verbose = True, min_lr = 1e-6)
 	sch_meter = utils.AvgMeter()
 	
-	scaler = amp.GradScaler(enabled = enable_fp16)
+	scaler_gen = amp.GradScaler(enabled = enable_fp16)
+	scaler_dis = amp.GradScaler(enabled = enable_fp16)
 
 	loss_dis_real_meter = utils.AvgMeter()
 	loss_dis_fake_meter = utils.AvgMeter()
@@ -73,7 +74,7 @@ def train(
 	writer = SummaryWriter(os.path.join(checkpoint_path, 'tb_summary'))
 	os.makedirs(os.path.join(checkpoint_path, 'checkpoints'), exist_ok = True)
 
-	fakepool = utils.ImagePool(fake_pool_size)
+	fakepool = utils.ImagePool(fake_pool_size, device)
 
 	if resume :
 		print(' -- Loading checkpoint')
@@ -98,7 +99,7 @@ def train(
 							fake_img = network_gen(real_img_masked, mask)
 						fakepool.put(fake_img)
 					else :
-						fake_img = fakepool.sample(real_img.device)
+						fake_img = fakepool.sample()
 					with amp.autocast(enabled = enable_fp16) :
 						real_logits = network_dis(real_img)
 						fake_logits = network_dis(fake_img)
@@ -108,14 +109,14 @@ def train(
 					if torch.isnan(loss_dis) or torch.isinf(loss_dis) :
 						breakpoint()
 
-					scaler.scale(loss_dis / float(gradient_accumulate)).backward()
+					scaler_dis.scale(loss_dis / float(gradient_accumulate)).backward()
 
 					loss_dis_real_meter(loss_dis_real.item())
 					loss_dis_fake_meter(loss_dis_fake.item())
 					loss_dis_meter(loss_dis.item())
-				scaler.unscale_(opt_dis)
-				scaler.step(opt_dis)
-				scaler.update()
+				scaler_dis.unscale_(opt_dis)
+				scaler_dis.step(opt_dis)
+				scaler_dis.update()
 			# train generator
 			for gen in range(n_gen) :
 				opt_gen.zero_grad()
@@ -136,17 +137,17 @@ def train(
 					if torch.isnan(loss_gen) or torch.isinf(loss_dis) :
 						breakpoint()
 
-					scaler.scale(loss_gen / float(gradient_accumulate)).backward()
+					scaler_gen.scale(loss_gen / float(gradient_accumulate)).backward()
 
 					loss_gen_meter(loss_gen.item())
 					loss_gen_l1_meter(loss_gen_l1.item())
 					sch_meter(loss_gen_l1.item()) # use L1 loss as lr scheduler metric
 					loss_gen_fm_meter(loss_gen_fm.item())
 					loss_gen_gan_meter(loss_gen_gan.item())
-				scaler.unscale_(opt_gen)
-				scaler.step(opt_gen)
-				scaler.update()
-			if counter > 0 and counter % record_freq == 0 :
+				scaler_gen.unscale_(opt_gen)
+				scaler_gen.step(opt_gen)
+				scaler_gen.update()
+			if counter % record_freq == 0 :
 				tqdm.write(f' -- Record at update {counter}')
 				writer.add_scalar('discriminator/all', loss_dis_meter(reset = True), counter)
 				writer.add_scalar('discriminator/real', loss_dis_real_meter(reset = True), counter)
@@ -189,7 +190,7 @@ def train(
 def main(args, device) :
 	print(' -- Initializing models')
 	gen = models.InpaintingSingleStage().to(device)
-	dis = models.Discriminator().to(device)
+	dis = models.DiscriminatorSimple().to(device)
 	ds = dataset.FileListDataset('train.flist', patch_size = 512)
 	loader = torch.utils.data.DataLoader(
 		ds,
