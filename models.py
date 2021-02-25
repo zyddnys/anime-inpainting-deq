@@ -191,7 +191,7 @@ class InpaintingSingleStage(nn.Module) :
 		x = self.head(x)
 		x = self.body(x)
 		x = self.tail(x)
-		return torch.tanh(x)
+		return x
 
 class Discriminator(nn.Module) :
 	def __init__(self, in_ch = 3, in_planes = 64, blocks = [2, 2, 2], alpha = 0.2) :
