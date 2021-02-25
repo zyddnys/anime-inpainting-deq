@@ -20,12 +20,12 @@ class FileListDataset(IterableDataset) :
 			self.samples = file_list
 		elif isinstance(file_list, str) :
 			with open(file_list, 'r') as fp :
-				self.samples = [s.strip() for s in fp.readlines()]
+				self.samples = [s.strip() for s in fp.readlines() if s.strip()]
 		self.image_size = image_size
 		self.patch_size = patch_size
 		self.root_dir = root_dir
 		self.cache_bg = None
-		self.cache_prob = 60 # 60% peob of using cache
+		self.cache_prob = 30 # 30% peob of using cache
 
 	@staticmethod
 	def resize_keep_aspect(img, size) :

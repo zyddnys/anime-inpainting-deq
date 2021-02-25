@@ -16,7 +16,7 @@ from torchvision.models.vgg import vgg16
 import ganloss
 import utils
 import dataset
-import models
+import models_vanilla as models
 import vgg_loss
 
 from tqdm import tqdm
@@ -67,6 +67,7 @@ def train(
 	loss_dis_meter = utils.AvgMeter()
 
 	loss_gen_l1_meter = utils.AvgMeter()
+	loss_gen_l1_coarse_meter = utils.AvgMeter()
 	loss_gen_fm_meter = utils.AvgMeter()
 	loss_gen_gan_meter = utils.AvgMeter()
 	loss_gen_meter = utils.AvgMeter()
@@ -96,7 +97,7 @@ def train(
 					real_img_masked = mask_image(real_img, mask)
 					if np.random.randint(0, 2) == 0 or not fakepool.available() :
 						with torch.no_grad(), amp.autocast(enabled = enable_fp16) :
-							fake_img = network_gen(real_img_masked, mask)
+							_, fake_img = network_gen(real_img_masked, mask)
 						fakepool.put(fake_img)
 					else :
 						fake_img = fakepool.sample()
@@ -125,15 +126,16 @@ def train(
 					real_img, mask = real_img.to(device), mask.to(device)
 					real_img_masked = mask_image(real_img, mask)
 					with amp.autocast(enabled = enable_fp16) :
-						inpainted_result = network_gen(real_img_masked, mask)
+						inpainted_result_coarse, inpainted_result = network_gen(real_img_masked, mask)
 						with torch.no_grad() :
 							real_image_feats = loss_vgg(real_img)
 						fake_image_feats = loss_vgg(inpainted_result)
 						loss_gen_l1 = F.l1_loss(inpainted_result, real_img)
+						loss_gen_l1_coarse = F.l1_loss(inpainted_result_coarse, real_img)
 						loss_gen_fm = F.l1_loss(fake_image_feats, real_image_feats)
 						generator_logits = network_dis(inpainted_result)
 						loss_gen_gan = loss_gan(generator_logits, 'generator')
-						loss_gen = weight_l1 * loss_gen_l1 + weight_fm * loss_gen_fm + weight_gan * loss_gen_gan
+						loss_gen = weight_l1 * (loss_gen_l1 + loss_gen_l1_coarse) + weight_fm * loss_gen_fm + weight_gan * loss_gen_gan
 					if torch.isnan(loss_gen) or torch.isinf(loss_dis) :
 						breakpoint()
 
@@ -141,6 +143,7 @@ def train(
 
 					loss_gen_meter(loss_gen.item())
 					loss_gen_l1_meter(loss_gen_l1.item())
+					loss_gen_l1_coarse_meter(loss_gen_l1_coarse.item())
 					sch_meter(loss_gen_l1.item()) # use L1 loss as lr scheduler metric
 					loss_gen_fm_meter(loss_gen_fm.item())
 					loss_gen_gan_meter(loss_gen_gan.item())
@@ -154,12 +157,14 @@ def train(
 				writer.add_scalar('discriminator/fake', loss_dis_fake_meter(reset = True), counter)
 				writer.add_scalar('generator/all', loss_gen_meter(reset = True), counter)
 				writer.add_scalar('generator/l1', loss_gen_l1_meter(reset = True), counter)
+				writer.add_scalar('generator/l1_coarse', loss_gen_l1_coarse_meter(reset = True), counter)
 				writer.add_scalar('generator/fm', loss_gen_fm_meter(reset = True), counter)
 				writer.add_scalar('generator/gan', loss_gen_gan_meter(reset = True), counter)
 				writer.add_image('original/image', img_unscale(real_img), counter, dataformats = 'NCHW')
 				writer.add_image('original/mask', mask, counter, dataformats = 'NCHW')
 				writer.add_image('original/masked', img_unscale(real_img_masked), counter, dataformats = 'NCHW')
-				writer.add_image('inpainted/image', img_unscale(inpainted_result), counter, dataformats = 'NCHW')
+				writer.add_image('inpainted/refined', img_unscale(inpainted_result), counter, dataformats = 'NCHW')
+				writer.add_image('inpainted/coarse', img_unscale(inpainted_result_coarse), counter, dataformats = 'NCHW')
 				torch.save(
 					{
 						'dis': network_dis.state_dict(),
@@ -189,9 +194,9 @@ def train(
 
 def main(args, device) :
 	print(' -- Initializing models')
-	gen = models.InpaintingSingleStage().to(device)
+	gen = models.InpaintingVanilla().to(device)
 	dis = models.DiscriminatorSimple().to(device)
-	ds = dataset.FileListDataset('train.flist', patch_size = 512)
+	ds = dataset.FileListDataset('train.flist', patch_size = 320)
 	loader = torch.utils.data.DataLoader(
 		ds,
 		batch_size = args.batch_size,
@@ -199,13 +204,14 @@ def main(args, device) :
 		worker_init_fn = dataset.init_worker,
 		pin_memory = True
 	)
-	train(gen, dis, loader, args.checkpoint_dir)
+	train(gen, dis, loader, args.checkpoint_dir, gradient_accumulate = args.gradient_accumulate)
 
 if __name__ == '__main__' :
 	import argparse
 	parser = argparse.ArgumentParser()
 	parser.add_argument('--checkpoint-dir', '-d', type = str, default = './checkpoints', help = "where to place checkpoints")
-	parser.add_argument('--batch-size', type = int, default = 8, help = "training batch size")
+	parser.add_argument('--batch-size', type = int, default = 4, help = "training batch size")
+	parser.add_argument('--gradient-accumulate', type = int, default = 8, help = "gradient accumulate")
 	parser.add_argument('--workers', type = int, default = 24, help = "num of dataloader workers")
 	args = parser.parse_args()
 	main(args, torch.device("cuda:0"))
