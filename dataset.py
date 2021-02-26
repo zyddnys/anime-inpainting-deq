@@ -11,6 +11,7 @@ from torch.utils.data import Dataset, IterableDataset, DataLoader
 import torchvision.transforms as transforms
 import torchvision.transforms.functional as F
 from PIL import Image
+Image.MAX_IMAGE_PIXELS = None
 
 import mask
 
