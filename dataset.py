@@ -26,7 +26,7 @@ class FileListDataset(IterableDataset) :
 		self.patch_size = patch_size
 		self.root_dir = root_dir
 		self.cache_bg = None
-		self.cache_prob = 30 # 30% peob of using cache
+		self.cache_prob = 30 # 30% prob of using cache
 
 	@staticmethod
 	def resize_keep_aspect(img, size) :
