@@ -77,17 +77,26 @@ def train(
 
 	fakepool = utils.ImagePool(fake_pool_size, device)
 
+	counter_start = 0
 	if resume :
-		print(' -- Loading checkpoint')
 		chekcpoints = os.listdir(os.path.join(checkpoint_path, 'checkpoints'))
-		last_chekcpoints = sorted(chekcpoints) if 'latest.ckpt' not in chekcpoints else 'latest.ckpt'
-		print(last_chekcpoints)
+		last_chekcpoints = sorted(chekcpoints, key = lambda item: (len(item), item))[-1] if 'latest.ckpt' not in chekcpoints else 'latest.ckpt'
+		print(f' -- Loading checkpoint {last_chekcpoints}')
+		ckpt = torch.load(os.path.join(checkpoint_path, 'checkpoints', last_chekcpoints))
+		network_gen.load_state_dict(ckpt['gen'])
+		network_dis.load_state_dict(ckpt['dis'])
+		opt_gen.load_state_dict(ckpt['gen_opt'])
+		opt_dis.load_state_dict(ckpt['dis_opt'])
+		counter_start = ckpt['counter'] + 1
+		print(f' -- Resume training from update {counter_start}')
+	else :
+		print(f' -- Start training from scratch')
 
 	dataloader = iter(dataloader)
 
 	print(' -- Training start')
 	try :
-		for counter in tqdm(range(total_updates)) :
+		for counter in tqdm(range(counter_start, total_updates)) :
 			# train discrimiantor
 			for critic in range(n_critic) :
 				opt_dis.zero_grad()
@@ -171,6 +180,7 @@ def train(
 						'gen': network_gen.state_dict(),
 						'dis_opt': opt_dis.state_dict(),
 						'gen_opt': opt_gen.state_dict(),
+						'counter': counter
 					},
 					os.path.join(checkpoint_path, 'checkpoints', f'update_{counter}.ckpt')
 				)
@@ -188,6 +198,7 @@ def train(
 				'gen': network_gen.state_dict(),
 				'dis_opt': opt_dis.state_dict(),
 				'gen_opt': opt_gen.state_dict(),
+				'counter': counter
 			},
 			os.path.join(checkpoint_path, 'checkpoints', f'latest.ckpt')
 		)
@@ -204,13 +215,14 @@ def main(args, device) :
 		worker_init_fn = dataset.init_worker,
 		pin_memory = True
 	)
-	train(gen, dis, loader, args.checkpoint_dir, gradient_accumulate = args.gradient_accumulate)
+	train(gen, dis, loader, args.checkpoint_dir, gradient_accumulate = args.gradient_accumulate, resume = args.resume)
 
 if __name__ == '__main__' :
 	import argparse
 	parser = argparse.ArgumentParser()
 	parser.add_argument('--checkpoint-dir', '-d', type = str, default = './checkpoints', help = "where to place checkpoints")
 	parser.add_argument('--batch-size', type = int, default = 4, help = "training batch size")
+	parser.add_argument('--resume', action = 'store_true', help = "resume training")
 	parser.add_argument('--gradient-accumulate', type = int, default = 8, help = "gradient accumulate")
 	parser.add_argument('--image-size', type = int, default = 320, help = "size of cropped patch used for training")
 	parser.add_argument('--image-file-size', type = int, default = 768, help = "size of smallest axis of image before cropping")
