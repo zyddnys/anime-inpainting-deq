@@ -464,10 +464,7 @@ class CoarseGenerator(nn.Module) :
 		attn = self.body_attn_6(attn)
 		conv = self.body_conv(x)
 		x = self.tail(torch.cat([conv, attn], dim = 1))
-		if self.training :
-			return x
-		else :
-			return torch.clip(x, -1, 1)
+		return torch.clip(x, -1, 1)
 
 class RefineGenerator(nn.Module) :
 	def __init__(self, in_ch = 5, out_ch = 3, ch = 64, alpha = 0.2) :
@@ -543,10 +540,7 @@ class RefineGenerator(nn.Module) :
 		attn = self.body_attn_7(attn)
 		conv = self.body_conv(x)
 		x = self.tail(torch.cat([conv, attn], dim = 1))
-		if self.training :
-			return x
-		else :
-			return torch.clip(x, -1, 1)
+		return torch.clip(x, -1, 1)
 
 class InpaintingVanilla(nn.Module):
 	def __init__(self):
