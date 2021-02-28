@@ -270,7 +270,7 @@ class GlobalLocalAttention(nn.Module):
 		bz, nc, w, h = foreground.size()
 		if background == "same":
 			background = foreground.clone()
-		mask = F.interpolate(mask, size=(h, w), mode='nearest')
+		mask = F.interpolate(mask, size=(w, h), mode='nearest')
 		background = background * (1 - mask)
 		foreground = self.feature_attention(foreground, background, mask)
 		background = F.pad(background,
