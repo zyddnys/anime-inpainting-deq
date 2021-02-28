@@ -106,6 +106,6 @@ def mask_image(x, height, width):
 	mask_temp = brush_stroke_mask().generate_mask(height, width)
 	mask_temp_tensor = torch.tensor(mask_temp, dtype=torch.float32)
 	mask_temp_tensor.to(x.device)
-	mask[:, :, :] = 1. - mask_temp_tensor
+	mask[:, :, :] = mask_temp_tensor
 	return mask
 

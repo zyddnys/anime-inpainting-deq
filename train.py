@@ -22,7 +22,7 @@ import vgg_loss
 from tqdm import tqdm
 
 def mask_image(img, mask) :
-	return img * mask
+	return img * (1. - mask)
 
 def img_unscale(img) :
 	return (img.detach() + 1) * .5
