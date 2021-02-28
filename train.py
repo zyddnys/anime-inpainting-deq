@@ -52,8 +52,8 @@ def train(
 	loss_gan = ganloss.GANLossHinge(device)
 	loss_vgg = vgg_loss.VGG16Loss().to(device)
 
-	opt_gen = optim.AdamW(network_gen.parameters(), lr = lr_gen, betas = (0.5, 0.99))
-	opt_dis = optim.AdamW(network_dis.parameters(), lr = lr_dis, betas = (0.5, 0.99))
+	opt_gen = optim.AdamW(network_gen.parameters(), lr = lr_gen, betas = (0.5, 0.99), weight_decay = 1e-6)
+	opt_dis = optim.AdamW(network_dis.parameters(), lr = lr_dis, betas = (0.5, 0.99), weight_decay = 1e-6)
 
 	sch_gen = optim.lr_scheduler.ReduceLROnPlateau(opt_gen, 'min', factor = 0.5, patience = 4, verbose = True, min_lr = 1e-6)
 	sch_dis = optim.lr_scheduler.ReduceLROnPlateau(opt_dis, 'min', factor = 0.5, patience = 4, verbose = True, min_lr = 1e-6)
