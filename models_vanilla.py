@@ -333,9 +333,9 @@ class GlobalAttention(nn.Module):
 		super(GlobalAttention, self).__init__()
 		self.chanel_in = in_dim
 
-		self.query_conv = nn.Conv2d(in_channels=in_dim, out_channels=in_dim, kernel_size=1)
-		self.key_conv = nn.Conv2d(in_channels=in_dim, out_channels=in_dim, kernel_size=1)
-		self.value_conv = nn.Conv2d(in_channels=in_dim, out_channels=in_dim, kernel_size=1)
+		self.query_conv = ScaledWSConv2d(in_channels=in_dim, out_channels=in_dim, kernel_size=1)
+		self.key_conv = ScaledWSConv2d(in_channels=in_dim, out_channels=in_dim, kernel_size=1)
+		self.value_conv = ScaledWSConv2d(in_channels=in_dim, out_channels=in_dim, kernel_size=1)
 		self.softmax = nn.Softmax(dim=-1)  #
 		self.rate = 1
 		self.gamma = nn.parameter.Parameter(torch.tensor([1.0], requires_grad=True), requires_grad=True)
@@ -367,9 +367,9 @@ class GlobalAttentionPatch(nn.Module):
 		super(GlobalAttentionPatch, self).__init__()
 		self.chanel_in = in_dim
 
-		self.query_channel = nn.Conv2d(in_channels=in_dim, out_channels=in_dim, kernel_size=1)
-		self.key_channel = nn.Conv2d(in_channels=in_dim, out_channels=in_dim, kernel_size=1)
-		self.value_channel = nn.Conv2d(in_channels=in_dim, out_channels=in_dim, kernel_size=1)
+		self.query_channel = ScaledWSConv2d(in_channels=in_dim, out_channels=in_dim, kernel_size=1)
+		self.key_channel = ScaledWSConv2d(in_channels=in_dim, out_channels=in_dim, kernel_size=1)
+		self.value_channel = ScaledWSConv2d(in_channels=in_dim, out_channels=in_dim, kernel_size=1)
 
 		self.softmax_channel = nn.Softmax(dim=-1)
 		self.gamma = nn.parameter.Parameter(torch.tensor([1.0], requires_grad=True), requires_grad=True)
@@ -464,7 +464,10 @@ class CoarseGenerator(nn.Module) :
 		attn = self.body_attn_6(attn)
 		conv = self.body_conv(x)
 		x = self.tail(torch.cat([conv, attn], dim = 1))
-		return torch.clip(x, -1, 1)
+		if self.training :
+			return x
+		else :
+			return torch.clip(x, -1, 1)
 
 class RefineGenerator(nn.Module) :
 	def __init__(self, in_ch = 5, out_ch = 3, ch = 64, alpha = 0.2) :
@@ -540,7 +543,10 @@ class RefineGenerator(nn.Module) :
 		attn = self.body_attn_7(attn)
 		conv = self.body_conv(x)
 		x = self.tail(torch.cat([conv, attn], dim = 1))
-		return torch.clip(x, -1, 1)
+		if self.training :
+			return x
+		else :
+			return torch.clip(x, -1, 1)
 
 class InpaintingVanilla(nn.Module):
 	def __init__(self):
