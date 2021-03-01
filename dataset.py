@@ -16,13 +16,14 @@ Image.MAX_IMAGE_PIXELS = None
 import mask
 
 class FileListDataset(IterableDataset) :
-	def __init__(self, file_list, image_size = 768, patch_size = 256, root_dir = None) :
+	def __init__(self, file_list, image_size_min = 768, image_size_max = 1920, patch_size = 256, root_dir = None) :
 		if isinstance(file_list, list) :
 			self.samples = file_list
 		elif isinstance(file_list, str) :
 			with open(file_list, 'r') as fp :
 				self.samples = [s.strip() for s in fp.readlines() if s.strip()]
-		self.image_size = image_size
+		self.image_size_min = image_size_min
+		self.image_size_max = image_size_max
 		self.patch_size = patch_size
 		self.root_dir = root_dir
 		self.cache_bg = None
@@ -60,7 +61,7 @@ class FileListDataset(IterableDataset) :
 				img = self.read_image_file(os.path.join(self.root_dir, img_filename))
 			else :
 				img = self.read_image_file(img_filename)
-			img = self.resize_keep_aspect(img, self.image_size)
+			img = self.resize_keep_aspect(img, np.random.randint(self.image_size_min, self.image_size_max + 1))
 			self.cache_bg = img
 		else :
 			img = self.cache_bg

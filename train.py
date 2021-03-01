@@ -207,7 +207,7 @@ def main(args, device) :
 	print(' -- Initializing models')
 	gen = models.InpaintingVanilla().to(device)
 	dis = models.DiscriminatorSimple().to(device)
-	ds = dataset.FileListDataset('train.flist', image_size = args.image_file_size, patch_size = args.image_size)
+	ds = dataset.FileListDataset('train.flist', image_size_min = args.image_file_size_min, image_size_max = args.image_file_size_max, patch_size = args.image_size)
 	loader = torch.utils.data.DataLoader(
 		ds,
 		batch_size = args.batch_size,
@@ -225,7 +225,8 @@ if __name__ == '__main__' :
 	parser.add_argument('--resume', action = 'store_true', help = "resume training")
 	parser.add_argument('--gradient-accumulate', type = int, default = 8, help = "gradient accumulate")
 	parser.add_argument('--image-size', type = int, default = 320, help = "size of cropped patch used for training")
-	parser.add_argument('--image-file-size', type = int, default = 768, help = "size of smallest axis of image before cropping")
+	parser.add_argument('--image-file-size-min', type = int, default = 640, help = "lower bound of smallest axis of image before cropping")
+	parser.add_argument('--image-file-size-max', type = int, default = 1920, help = "upper bound of smallest axis of image before cropping")
 	parser.add_argument('--workers', type = int, default = 24, help = "num of dataloader workers")
 	args = parser.parse_args()
 	main(args, torch.device("cuda:0"))
