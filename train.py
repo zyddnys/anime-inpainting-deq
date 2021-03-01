@@ -69,6 +69,7 @@ def train(
 	loss_gen_l1_meter = utils.AvgMeter()
 	loss_gen_l1_coarse_meter = utils.AvgMeter()
 	loss_gen_fm_meter = utils.AvgMeter()
+	loss_gen_fm_coarse_meter = utils.AvgMeter()
 	loss_gen_gan_meter = utils.AvgMeter()
 	loss_gen_meter = utils.AvgMeter()
 
@@ -139,12 +140,14 @@ def train(
 						with torch.no_grad() :
 							real_image_feats = loss_vgg(real_img)
 						fake_image_feats = loss_vgg(inpainted_result)
+						fake_image_coarse_feats = loss_vgg(inpainted_result_coarse)
 						loss_gen_l1 = F.l1_loss(inpainted_result, real_img)
 						loss_gen_l1_coarse = F.l1_loss(inpainted_result_coarse, real_img)
 						loss_gen_fm = F.l1_loss(fake_image_feats, real_image_feats)
+						loss_gen_fm_coarse = F.l1_loss(fake_image_coarse_feats, real_image_feats)
 						generator_logits = network_dis(inpainted_result)
 						loss_gen_gan = loss_gan(generator_logits, 'generator')
-						loss_gen = weight_l1 * (loss_gen_l1 + loss_gen_l1_coarse) + weight_fm * loss_gen_fm + weight_gan * loss_gen_gan
+						loss_gen = weight_l1 * (loss_gen_l1 + loss_gen_l1_coarse) + weight_fm * (loss_gen_fm + loss_gen_fm_coarse) + weight_gan * loss_gen_gan
 					if torch.isnan(loss_gen) or torch.isinf(loss_dis) :
 						breakpoint()
 
@@ -155,6 +158,7 @@ def train(
 					loss_gen_l1_coarse_meter(loss_gen_l1_coarse.item())
 					sch_meter(loss_gen_l1.item()) # use L1 loss as lr scheduler metric
 					loss_gen_fm_meter(loss_gen_fm.item())
+					loss_gen_fm_coarse_meter(loss_gen_fm_coarse.item())
 					loss_gen_gan_meter(loss_gen_gan.item())
 				scaler_gen.unscale_(opt_gen)
 				scaler_gen.step(opt_gen)
@@ -168,6 +172,7 @@ def train(
 				writer.add_scalar('generator/l1', loss_gen_l1_meter(reset = True), counter)
 				writer.add_scalar('generator/l1_coarse', loss_gen_l1_coarse_meter(reset = True), counter)
 				writer.add_scalar('generator/fm', loss_gen_fm_meter(reset = True), counter)
+				writer.add_scalar('generator/fm_coarse', loss_gen_fm_coarse_meter(reset = True), counter)
 				writer.add_scalar('generator/gan', loss_gen_gan_meter(reset = True), counter)
 				writer.add_image('original/image', img_unscale(real_img), counter, dataformats = 'NCHW')
 				writer.add_image('original/mask', mask, counter, dataformats = 'NCHW')
