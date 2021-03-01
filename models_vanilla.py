@@ -427,7 +427,13 @@ class CoarseGenerator(nn.Module) :
 
 		self.tail = nn.Sequential(
 			LambdaLayer(relu_nf),
+			GatedWSConvPadded(ch * 8, ch * 8, 3, 1),
+			LambdaLayer(relu_nf),
 			GatedWSConvPadded(ch * 8, ch * 4, 3, 1),
+			LambdaLayer(relu_nf),
+			GatedWSConvPadded(ch * 4, ch * 4, 3, 1),
+			LambdaLayer(relu_nf),
+			GatedWSConvPadded(ch * 4, ch * 4, 3, 1),
 			LambdaLayer(relu_nf),
 			GatedWSTransposeConvPadded(ch * 4, ch * 2, 4, 2),
 			LambdaLayer(relu_nf),
@@ -502,7 +508,13 @@ class RefineGenerator(nn.Module) :
 
 		self.tail = nn.Sequential(
 			LambdaLayer(relu_nf),
+			GatedWSConvPadded(ch * 8, ch * 8, 3, 1),
+			LambdaLayer(relu_nf),
 			GatedWSConvPadded(ch * 8, ch * 4, 3, 1),
+			LambdaLayer(relu_nf),
+			GatedWSConvPadded(ch * 4, ch * 4, 3, 1),
+			LambdaLayer(relu_nf),
+			GatedWSConvPadded(ch * 4, ch * 4, 3, 1),
 			LambdaLayer(relu_nf),
 			GatedWSTransposeConvPadded(ch * 4, ch * 2, 4, 2),
 			LambdaLayer(relu_nf),

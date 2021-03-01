@@ -36,7 +36,7 @@ def train(
 	weight_l1 = 1.0,
 	weight_fm = 0.5,
 	device = torch.device('cuda:0'),
-	n_critic = 1,
+	n_critic = 3,
 	n_gen = 1,
 	fake_pool_size = 256,
 	lr_gen = 1e-4,
@@ -48,6 +48,8 @@ def train(
 	enable_fp16 = False,
 	resume = False
 	) :
+	if enable_fp16 :
+		print(' -- FP16 AMP enabled')
 	print(' -- Initializing losses')
 	loss_gan = ganloss.GANLossHinge(device)
 	loss_vgg = vgg_loss.VGG16Loss().to(device)
@@ -238,6 +240,7 @@ if __name__ == '__main__' :
 	args = parser.parse_args()
 	enable_fp16 = not args.disable_amp
 	if args.enable_tf32 :
+		print(' -- TF32 enabled')
 		torch.backends.cuda.matmul.allow_tf32 = True
 		torch.backends.cudnn.allow_tf32 = True
 	main(args, torch.device("cuda:0"), enable_fp16)
