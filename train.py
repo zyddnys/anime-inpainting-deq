@@ -223,10 +223,15 @@ if __name__ == '__main__' :
 	parser.add_argument('--checkpoint-dir', '-d', type = str, default = './checkpoints', help = "where to place checkpoints")
 	parser.add_argument('--batch-size', type = int, default = 4, help = "training batch size")
 	parser.add_argument('--resume', action = 'store_true', help = "resume training")
+	parser.add_argument('--enable-amp', action = 'store_false', help = "enable amp fp16 training")
+	parser.add_argument('--enable-tf32', action = 'store_true', help = "enable tf32 training for NVIDIA Ampere GPU")
 	parser.add_argument('--gradient-accumulate', type = int, default = 8, help = "gradient accumulate")
 	parser.add_argument('--image-size', type = int, default = 320, help = "size of cropped patch used for training")
 	parser.add_argument('--image-file-size-min', type = int, default = 640, help = "lower bound of smallest axis of image before cropping")
 	parser.add_argument('--image-file-size-max', type = int, default = 1920, help = "upper bound of smallest axis of image before cropping")
 	parser.add_argument('--workers', type = int, default = 24, help = "num of dataloader workers")
 	args = parser.parse_args()
+	if args.enable_tf32 :
+		torch.backends.cuda.matmul.allow_tf32 = True
+		torch.backends.cudnn.allow_tf32 = True
 	main(args, torch.device("cuda:0"))
