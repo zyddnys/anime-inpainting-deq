@@ -25,7 +25,7 @@ def mask_image(img, mask) :
 	return img * (1. - mask)
 
 def img_unscale(img) :
-	return (img.detach() + 1) * .5
+	return (torch.clip(img.detach(), -1, 1) + 1) * .5
 
 def train(
 	network_gen: nn.Module,
@@ -45,15 +45,15 @@ def train(
 	record_freq = 1000,
 	total_updates = 1000000,
 	gradient_accumulate = 4,
-	enable_fp16 = True,
+	enable_fp16 = False,
 	resume = False
 	) :
 	print(' -- Initializing losses')
 	loss_gan = ganloss.GANLossHinge(device)
 	loss_vgg = vgg_loss.VGG16Loss().to(device)
 
-	opt_gen = optim.AdamW(network_gen.parameters(), lr = lr_gen, betas = (0.5, 0.99), weight_decay = 1e-6)
-	opt_dis = optim.AdamW(network_dis.parameters(), lr = lr_dis, betas = (0.5, 0.99), weight_decay = 1e-6)
+	opt_gen = optim.Adam(network_gen.parameters(), lr = lr_gen, betas = (0.5, 0.99), weight_decay = 1e-6)
+	opt_dis = optim.Adam(network_dis.parameters(), lr = lr_dis, betas = (0.5, 0.99), weight_decay = 1e-6)
 
 	sch_gen = optim.lr_scheduler.ReduceLROnPlateau(opt_gen, 'min', factor = 0.5, patience = 4, verbose = True, min_lr = 1e-6)
 	sch_dis = optim.lr_scheduler.ReduceLROnPlateau(opt_dis, 'min', factor = 0.5, patience = 4, verbose = True, min_lr = 1e-6)
@@ -203,7 +203,7 @@ def train(
 			os.path.join(checkpoint_path, 'checkpoints', f'latest.ckpt')
 		)
 
-def main(args, device) :
+def main(args, device, enable_fp16 = True) :
 	print(' -- Initializing models')
 	gen = models.InpaintingVanilla().to(device)
 	dis = models.DiscriminatorSimple().to(device)
@@ -215,7 +215,7 @@ def main(args, device) :
 		worker_init_fn = dataset.init_worker,
 		pin_memory = True
 	)
-	train(gen, dis, loader, args.checkpoint_dir, gradient_accumulate = args.gradient_accumulate, resume = args.resume)
+	train(gen, dis, loader, args.checkpoint_dir, gradient_accumulate = args.gradient_accumulate, resume = args.resume, enable_fp16 = enable_fp16)
 
 if __name__ == '__main__' :
 	import argparse
@@ -223,7 +223,7 @@ if __name__ == '__main__' :
 	parser.add_argument('--checkpoint-dir', '-d', type = str, default = './checkpoints', help = "where to place checkpoints")
 	parser.add_argument('--batch-size', type = int, default = 4, help = "training batch size")
 	parser.add_argument('--resume', action = 'store_true', help = "resume training")
-	parser.add_argument('--enable-amp', action = 'store_false', help = "enable amp fp16 training")
+	parser.add_argument('--disable-amp', action = 'store_true', help = "disable amp fp16 training")
 	parser.add_argument('--enable-tf32', action = 'store_true', help = "enable tf32 training for NVIDIA Ampere GPU")
 	parser.add_argument('--gradient-accumulate', type = int, default = 8, help = "gradient accumulate")
 	parser.add_argument('--image-size', type = int, default = 320, help = "size of cropped patch used for training")
@@ -231,7 +231,8 @@ if __name__ == '__main__' :
 	parser.add_argument('--image-file-size-max', type = int, default = 1920, help = "upper bound of smallest axis of image before cropping")
 	parser.add_argument('--workers', type = int, default = 24, help = "num of dataloader workers")
 	args = parser.parse_args()
+	enable_fp16 = not args.disable_amp
 	if args.enable_tf32 :
 		torch.backends.cuda.matmul.allow_tf32 = True
 		torch.backends.cudnn.allow_tf32 = True
-	main(args, torch.device("cuda:0"))
+	main(args, torch.device("cuda:0"), enable_fp16)
