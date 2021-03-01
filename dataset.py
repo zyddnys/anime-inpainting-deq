@@ -65,6 +65,8 @@ class FileListDataset(IterableDataset) :
 			self.cache_bg = img
 		else :
 			img = self.cache_bg
+		img = transforms.RandomHorizontalFlip()(img)
+		img = transforms.RandomVerticalFlip()(img)
 		patch = transforms.RandomCrop(self.patch_size, fill = (255, 255, 255), pad_if_needed = True)(img)
 		patch_img = F.to_tensor(patch) * 2. - 1.
 		mask_img = mask.mask_image(patch_img, self.patch_size, self.patch_size)
