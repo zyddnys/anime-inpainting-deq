@@ -267,10 +267,10 @@ class GlobalLocalAttention(nn.Module):
 
 	def forward(self, foreground, mask, background="same"):
 		###assume the masked area has value 1
-		bz, nc, w, h = foreground.size()
+		bz, nc, h, w = foreground.size()
 		if background == "same":
 			background = foreground.clone()
-		mask = F.interpolate(mask, size=(w, h), mode='nearest')
+		mask = F.interpolate(mask, size=(h, w), mode='nearest')
 		background = background * (1 - mask)
 		foreground = self.feature_attention(foreground, background, mask)
 		background = F.pad(background,
@@ -341,9 +341,8 @@ class GlobalAttention(nn.Module):
 		self.gamma = nn.parameter.Parameter(torch.tensor([1.0], requires_grad=True), requires_grad=True)
 
 	def forward(self, a, b, c):
-		m_batchsize, C, width, height = a.size()  # B, C, H, W
-		down_rate = int(c.size(2)//width)
-		c = F.interpolate(c, scale_factor=1./down_rate*self.rate, mode='nearest')
+		m_batchsize, C, height, width = a.size()  # B, C, H, W
+		c = F.interpolate(c, size=(height, width), mode='nearest')
 		proj_query = self.query_conv(a).view(m_batchsize, -1, width * height).permute(0, 2, 1)  # B, C, N -> B N C
 		proj_key = self.key_conv(b).view(m_batchsize, -1, width * height)  # B, C, N
 		feature_similarity = torch.bmm(proj_query, proj_key)  # B, N, N
@@ -355,7 +354,7 @@ class GlobalAttention(nn.Module):
 		attention = self.softmax(feature_pruning)  # B, N, C
 		feature_pruning = torch.bmm(self.value_conv(a).view(m_batchsize, -1, width * height),
 									attention.permute(0, 2, 1))  # -. B, C, N
-		out = feature_pruning.view(m_batchsize, C, width, height)  # B, C, H, W
+		out = feature_pruning.view(m_batchsize, C, height, width)  # B, C, H, W
 		out = a * c + self.gamma *  (1.0 - c) * out
 		return out
 
