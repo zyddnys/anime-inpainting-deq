@@ -95,9 +95,9 @@ class GatedWSConvPadded(nn.Module) :
 		super(GatedWSConvPadded, self).__init__()
 		self.in_ch = in_ch
 		self.out_ch = out_ch
-		self.padding = nn.ReflectionPad2d((ks - 1) // 2)
-		self.conv = ScaledWSConv2d(in_ch, out_ch, kernel_size = ks, stride = stride)
-		self.conv_gate = ScaledWSConv2d(in_ch, out_ch, kernel_size = ks, stride = stride)
+		self.padding = nn.ReflectionPad2d(((ks - 1) * dilation) // 2)
+		self.conv = ScaledWSConv2d(in_ch, out_ch, kernel_size = ks, stride = stride, dilation = dilation)
+		self.conv_gate = ScaledWSConv2d(in_ch, out_ch, kernel_size = ks, stride = stride, dilation = dilation)
 
 	def forward(self, x) :
 		x = self.padding(x)
@@ -564,19 +564,19 @@ class InpaintingVanilla(nn.Module):
 		super(InpaintingVanilla, self).__init__()
 
 		self.coarse_generator = CoarseGenerator(4, 3, 32)
-		self.fine_generator = RefineGenerator(4, 3, 64)
+		#self.fine_generator = RefineGenerator(4, 3, 64)
 
 	def forward(self, x, mask):
 		x_stage1 = self.coarse_generator(x, mask)
-		x_stage2 = self.fine_generator(x, x_stage1, mask)
-		return x_stage1, x_stage2
+		#x_stage2 = self.fine_generator(x, x_stage1, mask)
+		return x_stage1#, x_stage2
 
 def test() :
 	img = torch.randn(4, 3, 256, 256).cuda()
 	mask = torch.randn(4, 1, 256, 256).cuda()
 	net = InpaintingVanilla().cuda()
-	y1, y2 = net(img, mask)
-	print(y1.shape, y2.shape)
+	y1 = net(img, mask)
+	print(y1.shape)
 
 
 if __name__ == '__main__' :
