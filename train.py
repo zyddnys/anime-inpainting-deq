@@ -16,7 +16,7 @@ from torchvision.models.vgg import vgg16
 import ganloss
 import utils
 import dataset
-import models_vanilla as models
+import models_aot as models
 import vgg_loss
 
 from tqdm import tqdm
@@ -32,9 +32,9 @@ def train(
 	network_dis: nn.Module,
 	dataloader,
 	checkpoint_path,
-	weight_gan = 0.05,
+	weight_gan = 0.01,
 	weight_l1 = 1.0,
-	weight_fm = 0.5,
+	weight_fm = 1.0,
 	device = torch.device('cuda:0'),
 	n_critic = 3,
 	n_gen = 1,
@@ -51,8 +51,8 @@ def train(
 	if enable_fp16 :
 		print(' -- FP16 AMP enabled')
 	print(' -- Initializing losses')
-	loss_gan = ganloss.GANLossHinge(device)
-	loss_vgg = vgg_loss.VGG16Loss().to(device)
+	loss_gan = ganloss.GANLossSoftLS(device)
+	loss_vgg = vgg_loss.VGG19LossWithStyle().to(device)
 
 	opt_gen = optim.Adam(network_gen.parameters(), lr = lr_gen, betas = (0.5, 0.99), weight_decay = 1e-6)
 	opt_dis = optim.Adam(network_dis.parameters(), lr = lr_dis, betas = (0.5, 0.99), weight_decay = 1e-6)
@@ -70,8 +70,8 @@ def train(
 
 	loss_gen_l1_meter = utils.AvgMeter()
 	loss_gen_l1_coarse_meter = utils.AvgMeter()
-	loss_gen_fm_meter = utils.AvgMeter()
-	loss_gen_fm_coarse_meter = utils.AvgMeter()
+	loss_gen_vgg_meter = utils.AvgMeter()
+	loss_gen_vgg_coarse_meter = utils.AvgMeter()
 	loss_gen_gan_meter = utils.AvgMeter()
 	loss_gen_meter = utils.AvgMeter()
 
@@ -109,15 +109,16 @@ def train(
 					real_img_masked = mask_image(real_img, mask)
 					if np.random.randint(0, 2) == 0 or not fakepool.available() :
 						with torch.no_grad(), amp.autocast(enabled = enable_fp16) :
-							_, fake_img = network_gen(real_img_masked, mask)
+							fake_img = network_gen(real_img_masked, mask)
 						fakepool.put(fake_img)
 					else :
 						fake_img = fakepool.sample()
 					with amp.autocast(enabled = enable_fp16) :
 						real_logits = network_dis(real_img)
 						fake_logits = network_dis(fake_img)
-						loss_dis_real = loss_gan(real_logits, 'real')
-						loss_dis_fake = loss_gan(fake_logits, 'fake')
+						loss_dis_real = loss_gan(real_logits, 'real', None)
+						mask_inv = 1 - F.interpolate(mask, size = (real_logits.shape[2], real_logits.shape[3]), mode = 'bicubic', align_corners = False)
+						loss_dis_fake = loss_gan(fake_logits, 'fake', mask_inv)
 						loss_dis = 0.5 * (loss_dis_real + loss_dis_fake)
 					if torch.isnan(loss_dis) or torch.isinf(loss_dis) :
 						breakpoint()
@@ -138,18 +139,13 @@ def train(
 					real_img, mask = real_img.to(device), mask.to(device)
 					real_img_masked = mask_image(real_img, mask)
 					with amp.autocast(enabled = enable_fp16) :
-						inpainted_result_coarse, inpainted_result = network_gen(real_img_masked, mask)
-						with torch.no_grad() :
-							real_image_feats = loss_vgg(real_img)
-						fake_image_feats = loss_vgg(inpainted_result)
-						fake_image_coarse_feats = loss_vgg(inpainted_result_coarse)
+						inpainted_result = network_gen(real_img_masked, mask)
+						#inpainted_result_coarse, inpainted_result = network_gen(real_img_masked, mask)
 						loss_gen_l1 = F.l1_loss(inpainted_result, real_img)
-						loss_gen_l1_coarse = F.l1_loss(inpainted_result_coarse, real_img)
-						loss_gen_fm = F.l1_loss(fake_image_feats, real_image_feats)
-						loss_gen_fm_coarse = F.l1_loss(fake_image_coarse_feats, real_image_feats)
+						loss_vgg_combined = loss_vgg(inpainted_result, real_img)
 						generator_logits = network_dis(inpainted_result)
-						loss_gen_gan = loss_gan(generator_logits, 'generator')
-						loss_gen = weight_l1 * (loss_gen_l1 + loss_gen_l1_coarse) + weight_fm * (loss_gen_fm + loss_gen_fm_coarse) + weight_gan * loss_gen_gan
+						loss_gen_gan = loss_gan(generator_logits, 'generator', None)
+						loss_gen = weight_l1 * (loss_gen_l1) + weight_fm * (loss_vgg_combined) + weight_gan * loss_gen_gan
 					if torch.isnan(loss_gen) or torch.isinf(loss_dis) :
 						breakpoint()
 
@@ -157,10 +153,8 @@ def train(
 
 					loss_gen_meter(loss_gen.item())
 					loss_gen_l1_meter(loss_gen_l1.item())
-					loss_gen_l1_coarse_meter(loss_gen_l1_coarse.item())
 					sch_meter(loss_gen_l1.item()) # use L1 loss as lr scheduler metric
-					loss_gen_fm_meter(loss_gen_fm.item())
-					loss_gen_fm_coarse_meter(loss_gen_fm_coarse.item())
+					loss_gen_vgg_meter(loss_vgg_combined.item())
 					loss_gen_gan_meter(loss_gen_gan.item())
 				scaler_gen.unscale_(opt_gen)
 				scaler_gen.step(opt_gen)
@@ -173,14 +167,13 @@ def train(
 				writer.add_scalar('generator/all', loss_gen_meter(reset = True), counter)
 				writer.add_scalar('generator/l1', loss_gen_l1_meter(reset = True), counter)
 				writer.add_scalar('generator/l1_coarse', loss_gen_l1_coarse_meter(reset = True), counter)
-				writer.add_scalar('generator/fm', loss_gen_fm_meter(reset = True), counter)
-				writer.add_scalar('generator/fm_coarse', loss_gen_fm_coarse_meter(reset = True), counter)
+				writer.add_scalar('generator/vgg', loss_gen_vgg_meter(reset = True), counter)
+				writer.add_scalar('generator/vgg_coarse', loss_gen_vgg_coarse_meter(reset = True), counter)
 				writer.add_scalar('generator/gan', loss_gen_gan_meter(reset = True), counter)
 				writer.add_image('original/image', img_unscale(real_img), counter, dataformats = 'NCHW')
 				writer.add_image('original/mask', mask, counter, dataformats = 'NCHW')
 				writer.add_image('original/masked', img_unscale(real_img_masked), counter, dataformats = 'NCHW')
 				writer.add_image('inpainted/refined', img_unscale(inpainted_result), counter, dataformats = 'NCHW')
-				writer.add_image('inpainted/coarse', img_unscale(inpainted_result_coarse), counter, dataformats = 'NCHW')
 				torch.save(
 					{
 						'dis': network_dis.state_dict(),
@@ -212,8 +205,8 @@ def train(
 
 def main(args, device, enable_fp16 = True) :
 	print(' -- Initializing models')
-	gen = models.InpaintingVanilla().to(device)
-	dis = models.DiscriminatorSimple().to(device)
+	gen = models.AOTGenerator().to(device)
+	dis = models.Discriminator().to(device)
 	ds = dataset.FileListDataset('train.flist', image_size_min = args.image_file_size_min, image_size_max = args.image_file_size_max, patch_size = args.image_size)
 	loader = torch.utils.data.DataLoader(
 		ds,
@@ -222,12 +215,18 @@ def main(args, device, enable_fp16 = True) :
 		worker_init_fn = dataset.init_worker,
 		pin_memory = True
 	)
-	train(gen, dis, loader, args.checkpoint_dir, gradient_accumulate = args.gradient_accumulate, resume = args.resume, enable_fp16 = enable_fp16)
+	train(gen, dis, loader, args.checkpoint_dir,
+		gradient_accumulate = args.gradient_accumulate,
+		resume = args.resume,
+		enable_fp16 = enable_fp16,
+		n_critic = args.num_critic,
+		n_gen = args.num_gen,
+	)
 
 if __name__ == '__main__' :
 	import argparse
 	parser = argparse.ArgumentParser()
-	parser.add_argument('--checkpoint-dir', '-d', type = str, default = './checkpoints', help = "where to place checkpoints")
+	parser.add_argument('--checkpoint-dir', '-d', type = str, default = './checkpoints_aot', help = "where to place checkpoints")
 	parser.add_argument('--batch-size', type = int, default = 4, help = "training batch size")
 	parser.add_argument('--resume', action = 'store_true', help = "resume training")
 	parser.add_argument('--disable-amp', action = 'store_true', help = "disable amp fp16 training")
@@ -237,6 +236,8 @@ if __name__ == '__main__' :
 	parser.add_argument('--image-file-size-min', type = int, default = 640, help = "lower bound of smallest axis of image before cropping")
 	parser.add_argument('--image-file-size-max', type = int, default = 1920, help = "upper bound of smallest axis of image before cropping")
 	parser.add_argument('--workers', type = int, default = 24, help = "num of dataloader workers")
+	parser.add_argument('--num-critic', type = int, default = 1, help = "num of critic updates per update")
+	parser.add_argument('--num-gen', type = int, default = 1, help = "num of generator updates per update")
 	args = parser.parse_args()
 	enable_fp16 = not args.disable_amp
 	if args.enable_tf32 :
