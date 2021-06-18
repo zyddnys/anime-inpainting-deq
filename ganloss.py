@@ -7,15 +7,15 @@ class _GANLoss() :
 	def __init__( self, device ) :
 		self.device = device
 	
-	def __call__( self, logits, labels, size_average = True ) :
+	def __call__( self, logits, labels, mask = None, size_average = True ) :
 		self.size_average = size_average
 		if isinstance( logits, list ) :
 			if size_average :
-				loss = sum( [ self.run( logit, labels, dom = len( logits ) ) for logit in logits ] )
+				loss = sum( [ self.run( logit, labels, mask, dom = len( logits ) ) for logit in logits ] )
 			else :
-				loss = sum( [ self.run( logit, labels ) for logit in logits ] )
+				loss = sum( [ self.run( logit, labels, mask ) for logit in logits ] )
 		else :
-			loss = self.run( logits, labels )
+			loss = self.run( logits, labels, mask )
 		return loss
 
 class GANLossSCE( _GANLoss ) :
@@ -23,7 +23,7 @@ class GANLossSCE( _GANLoss ) :
 		super( GANLossSCE, self ).__init__( device )
 		self.criterion = nn.BCEWithLogitsLoss()
 
-	def run( self, logits, labels, dom = 1 ) :
+	def run( self, logits, labels, mask, dom = 1 ) :
 		bs = logits.size( 0 )
 		if labels == 'real' :
 			lbl = torch.ones( logits.size(), device = self.device )
@@ -39,7 +39,7 @@ class GANLossLS( _GANLoss ) :
 		super( GANLossLS, self ).__init__( device )
 		self.criterion = nn.MSELoss()
 
-	def run( self, logits, labels, dom = 1 ) :
+	def run( self, logits, labels, mask, dom = 1 ) :
 		bs = logits.size( 0 )
 		if labels == 'real' :
 			lbl = torch.ones( logits.size(), device = self.device )
@@ -50,11 +50,29 @@ class GANLossLS( _GANLoss ) :
 		loss = self.criterion( logits, lbl ) / dom
 		return loss
 
+class GANLossSoftLS( _GANLoss ) :
+	def __init__( self, device ) :
+		super( GANLossSoftLS, self ).__init__( device )
+		self.criterion = nn.MSELoss()
+
+	def run( self, logits, labels, mask, dom = 1 ) :
+		bs = logits.size( 0 )
+		if labels == 'real' :
+			lbl = torch.ones( logits.size(), device = self.device )
+		if labels == 'fake' :
+			lbl = mask
+		if labels == 'generator' :
+			lbl = torch.ones( logits.size(), device = self.device )
+		loss = self.criterion( logits, lbl ) / dom
+		if labels == 'fake' :
+			loss = loss / mask.mean()
+		return loss
+
 class GANLossHinge( _GANLoss ) :
 	def __init__( self, device ) :
 		super( GANLossHinge, self ).__init__( device )
 
-	def run( self, logits, labels, dom = 1 ) :      
+	def run( self, logits, labels, mask, dom = 1 ) :      
 		if labels == 'real' :
 			loss = nn.ReLU()( torch.ones( logits.size(), device = self.device ) - logits )
 		if labels == 'fake' :
@@ -106,7 +124,7 @@ class GANLossQP( _GANLoss ) :
 	def __init__( self, device ) :
 		super( GANLossQP, self ).__init__( device )
 
-	def run( self, logits, labels, dom = 1 ) :
+	def run( self, logits, labels, mask, dom = 1 ) :
 		if labels == 'real' :
 			loss = -logits
 		if labels == 'fake' :

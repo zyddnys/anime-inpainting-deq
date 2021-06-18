@@ -65,7 +65,7 @@ def gram_matrix(y) :
 	return torch.einsum('bchw,bdhw->bcd', [y, y]) / (h * w)
 	
 class VGG19LossWithStyle(torch.nn.Module):
-	def __init__(self, w_fm = 0.1, w_style = 250):
+	def __init__(self, w_fm = 0.1, w_style = 25):
 		super(VGG19LossWithStyle, self).__init__()
 		self.vgg = VGG19()
 		self.fm_vgg_stages = [2, 3, 4, 5]

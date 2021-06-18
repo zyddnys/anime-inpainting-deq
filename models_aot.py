@@ -30,35 +30,26 @@ class ResBlockDis(nn.Module):
 		x = self.conv1(F.leaky_relu(self.bn1(x), 0.2))
 		x = self.conv2(F.leaky_relu(self.bn2(x), 0.2))
 		return sc + x
-
+from torch.nn.utils import spectral_norm
 class Discriminator(nn.Module) :
 	def __init__(self, in_ch = 3, in_planes = 64, blocks = [2, 2, 2], alpha = 0.2) :
 		super(Discriminator, self).__init__()
 		self.in_planes = in_planes
 
-		self.conv1 = ScaledWSConv2d(in_ch, in_planes, kernel_size=4, stride=2, padding=1, bias=True)
-		self.layers = []
-		planes = self.in_planes
-		for nb in blocks :
-			self.layers.append(self._make_layer(ResBlockDis, planes, nb, stride=2))
-			planes *= 2
-		self.layers = nn.Sequential(*self.layers)
-		self.cls = ScaledWSConv2d(planes // 2, 1, 1)
-
-	def _make_layer(self, block, planes, num_blocks, stride):
-		strides = [stride] + [1]*(num_blocks-1)
-		layers = []
-		for i, stride in enumerate(strides) :
-			layers.append(block(self.in_planes, planes, stride))
-			self.in_planes = planes
-
-		return nn.Sequential(*layers)
+		self.conv = nn.Sequential(
+			spectral_norm(nn.Conv2d(in_ch, in_planes, 4, stride=2, padding=1, bias=False)),
+			nn.LeakyReLU(0.2, inplace=True),
+			spectral_norm(nn.Conv2d(in_planes, in_planes*2, 4, stride=2, padding=1, bias=False)),
+			nn.LeakyReLU(0.2, inplace=True),
+			spectral_norm(nn.Conv2d(in_planes*2, in_planes*4, 4, stride=2, padding=1, bias=False)),
+			nn.LeakyReLU(0.2, inplace=True),
+			spectral_norm(nn.Conv2d(in_planes*4, in_planes*8, 4, stride=1, padding=1, bias=False)),
+			nn.LeakyReLU(0.2, inplace=True),
+			nn.Conv2d(512, 1, 4, stride=1, padding=1)
+		)
 
 	def forward(self, x) :
-		x = self.conv1(x)
-		for l in self.layers :
-			x = l(x)
-		x = self.cls(relu_nf(x))
+		x = self.conv(x)
 		return x
 
 class AOTGenerator(nn.Module) :
@@ -73,26 +64,7 @@ class AOTGenerator(nn.Module) :
 			GatedWSConvPadded(ch * 2, ch * 4, 4, stride = 2),
 		)
 
-		self.beta = 1.0
-		self.alpha = alpha
-		self.body_conv = []
-		self.body_conv.append(AOTBlock(ch * 4, self.alpha, self.beta))
-		self.beta = (self.beta ** 2 + self.alpha ** 2) ** 0.5
-		self.body_conv.append(AOTBlock(ch * 4, self.alpha, self.beta))
-		self.beta = (self.beta ** 2 + self.alpha ** 2) ** 0.5
-		self.body_conv.append(AOTBlock(ch * 4, self.alpha, self.beta))
-		self.beta = (self.beta ** 2 + self.alpha ** 2) ** 0.5
-		self.body_conv.append(AOTBlock(ch * 4, self.alpha, self.beta))
-		self.beta = (self.beta ** 2 + self.alpha ** 2) ** 0.5
-		self.body_conv.append(AOTBlock(ch * 4, self.alpha, self.beta))
-		self.beta = (self.beta ** 2 + self.alpha ** 2) ** 0.5
-		self.body_conv.append(ResBlock(ch * 4, self.alpha, self.beta))
-		self.beta = (self.beta ** 2 + self.alpha ** 2) ** 0.5
-		self.body_conv.append(AOTBlock(ch * 4, self.alpha, self.beta))
-		self.beta = (self.beta ** 2 + self.alpha ** 2) ** 0.5
-		self.body_conv.append(ResBlock(ch * 4, self.alpha, self.beta))
-		self.beta = (self.beta ** 2 + self.alpha ** 2) ** 0.5
-		self.body_conv = nn.Sequential(*self.body_conv)
+		self.body_conv = nn.Sequential(*[AOTBlock(ch * 4) for _ in range(10)])
 
 		self.tail = nn.Sequential(
 			GatedWSConvPadded(ch * 4, ch * 4, 3, 1),
