@@ -216,7 +216,7 @@ class ModelInjection(nn.Module) :
 		super(ModelInjection, self).__init__()
 		self.cfg = cfg
 		self.pad = nn.ReflectionPad2d(1)
-		self.stem = ScaledWSConv2d(3, 64, 3, 1, 0)
+		self.stem = ScaledWSConv2d(4, 64, 3, 1, 0)
 		self.l1 = ScaledWSConv2d(64, 128, 4, 2, 0)
 		self.l2 = ScaledWSConv2d(128, 256, 4, 2, 0)
 		self.proj = ScaledWSConv2d(256, cfg.get('planes', 512), 1)
@@ -282,7 +282,7 @@ class MDEQModelAOT(MDEQModelBackbone) :
 		self.deconv2 = ScaledWSTransposeConv2d(128, 64, 4, 2, 1)
 		self.to_rgb = ScaledWSConv2d(64, 3, 3, 1, 0)
 
-	def forward(self, x: torch.Tensor, train_step = -1, **kwargs) :
+	def forward(self, x: torch.Tensor, mask: torch.Tensor, train_step = -1, **kwargs) :
 		"""
 		Fill here with your implementation of model head
 		(Usually a classification head)
@@ -291,6 +291,7 @@ class MDEQModelAOT(MDEQModelBackbone) :
 		returns:
 			Whatever your output want to be
 		"""
+		x = torch.cat([x, mask], dim = 1)
 		h: List[torch.Tensor] = super().forward(x, train_step, **kwargs)
 		h = h[0]
 		h = gelu_nf(self.proj(h))
@@ -310,7 +311,8 @@ def test() :
 	}
 	m = MDEQModelAOT(cfg).cuda()
 	img = torch.randn(2, 3, 512, 512).cuda()
-	x = m(img)
+	mask = torch.randn(2, 1, 512, 512).cuda()
+	x = m(img, mask)
 	target = torch.randn(2, 3, 512, 512).cuda()
 	F.l1_loss(x, target).backward()
 
