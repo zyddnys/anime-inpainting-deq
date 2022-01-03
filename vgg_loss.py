@@ -86,6 +86,28 @@ class VGG19LossWithStyle(torch.nn.Module):
 				gram_matrix(target_vgg[f'relu{self.style_prefix[i]}_{self.style_postfix[i]}']))
 		return self.w_fm * loss_fm + self.w_style * loss_style
 			
+class VGG19LossWithStyleHighLevel(torch.nn.Module):
+	def __init__(self, w_fm = 0.1, w_style = 25):
+		super(VGG19LossWithStyleHighLevel, self).__init__()
+		self.vgg = VGG19()
+		self.fm_vgg_stages = [4, 5]
+		self.style_prefix = [4, 5]
+		self.style_postfix = [4, 2]
+		self.w_fm = w_fm
+		self.w_style = w_style
+
+	def forward(self, inp, target) :
+		inp_vgg = self.vgg(inp)
+		with torch.no_grad() :
+			target_vgg = self.vgg(target)
+		loss_fm = 0.0
+		loss_style = 0.0
+		for i in range(2) :
+			loss_fm += F.l1_loss(inp_vgg[f'relu{self.fm_vgg_stages[i]}_1'], target_vgg[f'relu{self.fm_vgg_stages[i]}_1'])
+			loss_style += F.l1_loss(gram_matrix(inp_vgg[f'relu{self.style_prefix[i]}_{self.style_postfix[i]}']),
+				gram_matrix(target_vgg[f'relu{self.style_prefix[i]}_{self.style_postfix[i]}']))
+		return self.w_fm * loss_fm + self.w_style * loss_style
+
 def main() :
 	img = torch.randn(4, 3, 256, 256)
 	img_ref = torch.randn(4, 3, 256, 256)
